@@ -4,8 +4,6 @@ import (
 	"golang.org/x/crypto/openpgp/packet"
 	. "gopkg.in/check.v1"
 
-	"bytes"
-	"compress/gzip"
 	"debug/elf"
 	"errors"
 	"flag"
@@ -631,18 +629,6 @@ func read(r io.Reader) string {
 	return string(data)
 }
 
-func gzipBytes(s string) []byte {
-	var buf bytes.Buffer
-	w := gzip.NewWriter(&buf)
-	if _, err := w.Write([]byte(s)); err != nil {
-		panic(err)
-	}
-	if err := w.Close(); err != nil {
-		panic(err)
-	}
-	return buf.Bytes()
-}
-
 func (s *httpSuite) sawByHashRequest() bool {
 	for _, req := range s.requests {
 		if strings.Contains(req.URL.Path, "/by-hash/SHA256/") {
@@ -655,8 +641,8 @@ func (s *httpSuite) sawByHashRequest() bool {
 func (s *httpSuite) TestFetchByHashSucceedsWhenNamedPathIsStale(c *C) {
 	s.prepareArchiveAdjustRelease("jammy", "22.04", "amd64", []string{"main"}, func(r *testarchive.Release) {
 		r.AcquireByHash = true
-		r.NamedPathContent = map[string][]byte{
-			"main/binary-amd64/Packages.gz": gzipBytes("stale Packages from previous publication"),
+		r.PathOverrides = map[string][]byte{
+			"main/binary-amd64/Packages.gz": testarchive.MakeGzip([]byte("stale Packages from previous publication")),
 		}
 	})
 
@@ -682,7 +668,7 @@ func (s *httpSuite) TestFetchByHashSucceedsWhenNamedPathIsStale(c *C) {
 func (s *httpSuite) TestFetchByHashFallsBackOnNotFound(c *C) {
 	s.prepareArchiveAdjustRelease("jammy", "22.04", "amd64", []string{"main"}, func(r *testarchive.Release) {
 		r.AcquireByHash = true
-		r.ByHashSkip = []string{"main/binary-amd64/Packages.gz"}
+		r.ByHashSkips = []string{"main/binary-amd64/Packages.gz"}
 	})
 
 	options := archive.Options{

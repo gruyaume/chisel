@@ -54,7 +54,7 @@ func (gz *Gzip) Section() []byte {
 }
 
 func (gz *Gzip) Content() []byte {
-	return makeGzip(gz.Item.Content())
+	return MakeGzip(gz.Item.Content())
 }
 
 type Package struct {
@@ -108,9 +108,9 @@ type Release struct {
 	Items   []Item
 	PrivKey *packet.PrivateKey
 	// Fields below model acquire-by-hash and mirror inconsistencies for tests.
-	AcquireByHash    bool
-	ByHashSkip       []string
-	NamedPathContent map[string][]byte
+	AcquireByHash bool
+	ByHashSkips   []string
+	PathOverrides map[string][]byte
 }
 
 func (r *Release) Walk(f func(Item) error) error {
@@ -166,8 +166,8 @@ func (r *Release) Content() []byte {
 }
 
 func (r *Release) Render(prefix string, content map[string][]byte) error {
-	skipByHash := make(map[string]bool, len(r.ByHashSkip))
-	for _, p := range r.ByHashSkip {
+	skipByHash := make(map[string]bool, len(r.ByHashSkips))
+	for _, p := range r.ByHashSkips {
 		skipByHash[p] = true
 	}
 	return r.Walk(func(item Item) error {
@@ -178,7 +178,7 @@ func (r *Release) Render(prefix string, content map[string][]byte) error {
 			return nil
 		}
 		distItemPath := path.Join(prefix, "dists", r.Suite, itemPath)
-		if override, ok := r.NamedPathContent[itemPath]; ok {
+		if override, ok := r.PathOverrides[itemPath]; ok {
 			content[distItemPath] = override
 		} else {
 			content[distItemPath] = itemContent
@@ -225,7 +225,7 @@ func makeSha256(b []byte) string {
 	return fmt.Sprintf("%x", sha256.Sum256(b))
 }
 
-func makeGzip(b []byte) []byte {
+func MakeGzip(b []byte) []byte {
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)
 	_, err := gz.Write(b)
