@@ -329,10 +329,10 @@ func (index *ubuntuIndex) fetchRelease() error {
 }
 
 func (index *ubuntuIndex) fetchIndex() error {
-	digests := index.release.Get("SHA256")
+	releaseDigests := index.release.Get("SHA256")
 	packagesPath := fmt.Sprintf("%s/binary-%s/Packages", index.component, index.arch)
-	digest, _, _ := control.ParsePathInfo(digests, packagesPath)
-	if digest == "" {
+	packagesDigest, _, _ := control.ParsePathInfo(releaseDigests, packagesPath)
+	if packagesDigest == "" {
 		return fmt.Errorf("%s is missing from %s %s component digests", packagesPath, index.suite, index.component)
 	}
 
@@ -342,13 +342,13 @@ func (index *ubuntuIndex) fetchIndex() error {
 	// are content-addressed and so are immune to the inconsistent view of
 	// InRelease vs Packages.gz that mirrors and CDNs can serve while a
 	// publication is propagating. See https://wiki.ubuntu.com/AptByHash.
-	gzPath := packagesPath + ".gz"
+	packagesGzPath := packagesPath + ".gz"
 	var reader io.ReadSeekCloser
 	if index.release.Get("Acquire-By-Hash") == "yes" {
-		gzDigest, _, _ := control.ParsePathInfo(digests, gzPath)
-		if gzDigest != "" {
-			byHashPath := fmt.Sprintf("%s/binary-%s/by-hash/SHA256/%s", index.component, index.arch, gzDigest)
-			r, err := index.fetch(index.distPath(byHashPath), digest, fetchBulk|fetchGzip)
+		packagesGzDigest, _, _ := control.ParsePathInfo(releaseDigests, packagesGzPath)
+		if packagesGzDigest != "" {
+			packagesByHashPath := fmt.Sprintf("%s/binary-%s/by-hash/SHA256/%s", index.component, index.arch, packagesGzDigest)
+			r, err := index.fetch(index.distPath(packagesByHashPath), packagesDigest, fetchBulk|fetchGzip)
 			if err != nil && err != errNotFound {
 				return err
 			}
@@ -358,7 +358,7 @@ func (index *ubuntuIndex) fetchIndex() error {
 		}
 	}
 	if reader == nil {
-		r, err := index.fetch(index.distPath(gzPath), digest, fetchBulk|fetchGzip)
+		r, err := index.fetch(index.distPath(packagesGzPath), packagesDigest, fetchBulk|fetchGzip)
 		if err != nil {
 			return err
 		}
