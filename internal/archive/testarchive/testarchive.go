@@ -107,10 +107,9 @@ type Release struct {
 	Label   string
 	Items   []Item
 	PrivKey *packet.PrivateKey
-	// Fields below model acquire-by-hash and mirror inconsistencies for tests.
-	ByHash        bool
-	ByHashSkips   []string
-	PathOverrides map[string][]byte
+	// ByHash enables the Acquire-By-Hash flag in the Release file
+	// and renders by-hash URLs alongside named paths.
+	ByHash bool
 }
 
 func (r *Release) Walk(f func(Item) error) error {
@@ -166,10 +165,6 @@ func (r *Release) Content() []byte {
 }
 
 func (r *Release) Render(prefix string, content map[string][]byte) error {
-	skipByHash := make(map[string]bool, len(r.ByHashSkips))
-	for _, p := range r.ByHashSkips {
-		skipByHash[p] = true
-	}
 	return r.Walk(func(item Item) error {
 		itemPath := item.Path()
 		itemContent := item.Content()
@@ -178,12 +173,8 @@ func (r *Release) Render(prefix string, content map[string][]byte) error {
 			return nil
 		}
 		distItemPath := path.Join(prefix, "dists", r.Suite, itemPath)
-		if override, ok := r.PathOverrides[itemPath]; ok {
-			content[distItemPath] = override
-		} else {
-			content[distItemPath] = itemContent
-		}
-		if r.ByHash && itemPath != r.Path() && !skipByHash[itemPath] {
+		content[distItemPath] = itemContent
+		if r.ByHash && itemPath != r.Path() {
 			byHashPath := path.Join(prefix, "dists", r.Suite, path.Dir(itemPath), "by-hash", "SHA256", makeSha256(itemContent))
 			content[byHashPath] = itemContent
 		}

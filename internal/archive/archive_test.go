@@ -652,10 +652,15 @@ func (s *httpSuite) fetchRequestStatus(pathSubstring string) (bool, int) {
 func (s *httpSuite) TestFetchByHashSucceedsWhenNamedPathIsStale(c *C) {
 	s.prepareArchiveAdjustRelease("jammy", "22.04", "amd64", []string{"main"}, func(r *testarchive.Release) {
 		r.ByHash = true
-		r.PathOverrides = map[string][]byte{
-			"main/binary-amd64/Packages.gz": testarchive.MakeGzip([]byte("stale Packages from previous publication")),
-		}
 	})
+
+	// Simulate a mirror serving stale content at the named Packages.gz path
+	// while the by-hash path still has the correct data.
+	for p := range s.responses {
+		if strings.Contains(p, "Packages.gz") && !strings.Contains(p, "/by-hash/") {
+			s.responses[p] = testarchive.MakeGzip([]byte("stale Packages from previous publication"))
+		}
+	}
 
 	options := archive.Options{
 		Label:      "ubuntu",
@@ -685,8 +690,14 @@ func (s *httpSuite) TestFetchByHashSucceedsWhenNamedPathIsStale(c *C) {
 func (s *httpSuite) TestFetchByHashFallsBackOnNotFound(c *C) {
 	s.prepareArchiveAdjustRelease("jammy", "22.04", "amd64", []string{"main"}, func(r *testarchive.Release) {
 		r.ByHash = true
-		r.ByHashSkips = []string{"main/binary-amd64/Packages.gz"}
 	})
+
+	// Simulate a mirror that garbage-collected the by-hash entries.
+	for p := range s.responses {
+		if strings.Contains(p, "/by-hash/") {
+			delete(s.responses, p)
+		}
+	}
 
 	options := archive.Options{
 		Label:      "ubuntu",
