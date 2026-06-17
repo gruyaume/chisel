@@ -22,19 +22,25 @@ import (
 	"github.com/canonical/chisel/internal/testutil"
 )
 
+type requestResult struct {
+	path   string
+	status int
+}
+
 type httpSuite struct {
-	logf      func(string, ...any)
-	base      string
-	request   *http.Request
-	requests  []*http.Request
-	response  string
-	responses map[string][]byte
-	err       error
-	header    http.Header
-	status    int
-	restore   func()
-	privKey   *packet.PrivateKey
-	pubKey    *packet.PublicKey
+	logf           func(string, ...any)
+	base           string
+	request        *http.Request
+	requests       []*http.Request
+	requestResults []requestResult
+	response       string
+	responses      map[string][]byte
+	err            error
+	header         http.Header
+	status         int
+	restore        func()
+	privKey        *packet.PrivateKey
+	pubKey         *packet.PublicKey
 }
 
 var _ = Suite(&httpSuite{})
@@ -54,6 +60,7 @@ func (s *httpSuite) SetUpTest(c *C) {
 	s.base = "http://archive.ubuntu.com/ubuntu/"
 	s.request = nil
 	s.requests = nil
+	s.requestResults = nil
 	s.response = ""
 	s.responses = make(map[string][]byte)
 	s.header = nil
@@ -91,6 +98,7 @@ func (s *httpSuite) Do(req *http.Request) (*http.Response, error) {
 		// Unknown path with responses populated: behave like a real archive.
 		status = 404
 	}
+	s.requestResults = append(s.requestResults, requestResult{path: req.URL.Path, status: status})
 	rsp := &http.Response{
 		Body:       io.NopCloser(strings.NewReader(body)),
 		Header:     s.header,
@@ -629,18 +637,21 @@ func read(r io.Reader) string {
 	return string(data)
 }
 
-func (s *httpSuite) sawByHashRequest() bool {
-	for _, req := range s.requests {
-		if strings.Contains(req.URL.Path, "/by-hash/SHA256/") {
-			return true
+// fetchRequestStatus checks whether a request was made whose URL path
+// contains the given substring. If so, it returns true and the HTTP status
+// code from the most recent matching request. If not, it returns false, 0.
+func (s *httpSuite) fetchRequestStatus(pathSubstring string) (bool, int) {
+	for i := len(s.requestResults) - 1; i >= 0; i-- {
+		if strings.Contains(s.requestResults[i].path, pathSubstring) {
+			return true, s.requestResults[i].status
 		}
 	}
-	return false
+	return false, 0
 }
 
 func (s *httpSuite) TestFetchByHashSucceedsWhenNamedPathIsStale(c *C) {
 	s.prepareArchiveAdjustRelease("jammy", "22.04", "amd64", []string{"main"}, func(r *testarchive.Release) {
-		r.AcquireByHash = true
+		r.ByHash = true
 		r.PathOverrides = map[string][]byte{
 			"main/binary-amd64/Packages.gz": testarchive.MakeGzip([]byte("stale Packages from previous publication")),
 		}
@@ -662,12 +673,18 @@ func (s *httpSuite) TestFetchByHashSucceedsWhenNamedPathIsStale(c *C) {
 	pkg, _, err := testArchive.Fetch("mypkg1")
 	c.Assert(err, IsNil)
 	c.Assert(read(pkg), Equals, "mypkg1 1.1 data")
-	c.Assert(s.sawByHashRequest(), Equals, true)
+
+	// The by-hash request must have been attempted and succeeded with 200,
+	// since the named path has stale content and only by-hash has the
+	// correct data.
+	attempted, status := s.fetchRequestStatus("/by-hash/SHA256/")
+	c.Assert(attempted, Equals, true)
+	c.Assert(status, Equals, 200)
 }
 
 func (s *httpSuite) TestFetchByHashFallsBackOnNotFound(c *C) {
 	s.prepareArchiveAdjustRelease("jammy", "22.04", "amd64", []string{"main"}, func(r *testarchive.Release) {
-		r.AcquireByHash = true
+		r.ByHash = true
 		r.ByHashSkips = []string{"main/binary-amd64/Packages.gz"}
 	})
 
@@ -687,7 +704,16 @@ func (s *httpSuite) TestFetchByHashFallsBackOnNotFound(c *C) {
 	pkg, _, err := testArchive.Fetch("mypkg1")
 	c.Assert(err, IsNil)
 	c.Assert(read(pkg), Equals, "mypkg1 1.1 data")
-	c.Assert(s.sawByHashRequest(), Equals, true)
+
+	// The by-hash request must have been attempted but got 404 (the hash
+	// was garbage-collected), so we fell back to the named path which
+	// returned 200 with the correct data.
+	attempted, status := s.fetchRequestStatus("/by-hash/SHA256/")
+	c.Assert(attempted, Equals, true)
+	c.Assert(status, Equals, 404)
+	attempted, status = s.fetchRequestStatus("Packages.gz")
+	c.Assert(attempted, Equals, true)
+	c.Assert(status, Equals, 200)
 }
 
 func (s *httpSuite) TestFetchSkipsByHashWhenNotAdvertised(c *C) {
@@ -705,7 +731,14 @@ func (s *httpSuite) TestFetchSkipsByHashWhenNotAdvertised(c *C) {
 
 	_, err := archive.Open(&options)
 	c.Assert(err, IsNil)
-	c.Assert(s.sawByHashRequest(), Equals, false)
+
+	// When by-hash is not advertised, no by-hash request should be
+	// attempted; only the named Packages.gz path is fetched.
+	attempted, _ := s.fetchRequestStatus("/by-hash/SHA256/")
+	c.Assert(attempted, Equals, false)
+	attempted, status := s.fetchRequestStatus("Packages.gz")
+	c.Assert(attempted, Equals, true)
+	c.Assert(status, Equals, 200)
 }
 
 // ----------------------------------------------------------------------------------------

@@ -108,7 +108,7 @@ type Release struct {
 	Items   []Item
 	PrivKey *packet.PrivateKey
 	// Fields below model acquire-by-hash and mirror inconsistencies for tests.
-	AcquireByHash bool
+	ByHash        bool
 	ByHashSkips   []string
 	PathOverrides map[string][]byte
 }
@@ -132,7 +132,7 @@ func (r *Release) Content() []byte {
 		fmt.Fprintf(&digests, " %s  %d  %s\n", makeSha256(content), len(content), item.Path())
 	}
 	acquireByHash := ""
-	if r.AcquireByHash {
+	if r.ByHash {
 		acquireByHash = "Acquire-By-Hash: yes\n"
 	}
 	content := fmt.Sprintf(string(testutil.Reindent(`
@@ -183,7 +183,7 @@ func (r *Release) Render(prefix string, content map[string][]byte) error {
 		} else {
 			content[distItemPath] = itemContent
 		}
-		if r.AcquireByHash && itemPath != r.Path() && !skipByHash[itemPath] {
+		if r.ByHash && itemPath != r.Path() && !skipByHash[itemPath] {
 			byHashPath := path.Join(prefix, "dists", r.Suite, path.Dir(itemPath), "by-hash", "SHA256", makeSha256(itemContent))
 			content[byHashPath] = itemContent
 		}
